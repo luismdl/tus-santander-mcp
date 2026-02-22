@@ -3,6 +3,7 @@ services:
     name: tus-santander-mcp
     runtime: node
     plan: free
+    region: frankfurt
     buildCommand: npm install
     startCommand: node src/index.js
     healthCheckPath: /health
