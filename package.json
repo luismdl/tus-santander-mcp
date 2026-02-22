@@ -1,0 +1,18 @@
+{
+  "name": "tus-santander-mcp",
+  "version": "1.0.0",
+  "description": "Servidor MCP para consultar el servicio de autobuses TUS de Santander",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.5.0",
+    "express": "^5.2.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
