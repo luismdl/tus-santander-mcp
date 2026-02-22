@@ -1,3 +1,6 @@
+# Claude Code local settings (permisos de sesión, no subir al repo)
+.claude/
+
 # Logs
 logs
 *.log

@@ -289,11 +289,25 @@ export async function getEstimacionesByLinea(linea) {
   return resources.map(mapEstimacion);
 }
 
+// ─── Cache ligero con TTL ─────────────────────────────────────────────────────
+
+const _cache = { data: null, ts: 0 };
+const CACHE_TTL_MS = 30_000; // 30 s — las estimaciones se actualizan cada ~30 s
+
+async function getTodasEstimacionesCached() {
+  const now = Date.now();
+  if (_cache.data && now - _cache.ts < CACHE_TTL_MS) return _cache.data;
+  const result = await fetchAllPages(ENDPOINTS.estimaciones);
+  _cache.data = result;
+  _cache.ts = now;
+  return result;
+}
+
 // ─── Planificación de rutas ───────────────────────────────────────────────────
 
 /**
  * Encuentra líneas que conectan dos paradas (por número de parada).
- * Devuelve rutas directas y con una transborda.
+ * Devuelve rutas directas y con una transbordo.
  */
 export async function planificarRuta(paradaOrigenId, paradaDestinoId) {
   // Obtener secuencias específicas de cada parada en paralelo
@@ -329,9 +343,9 @@ export async function planificarRuta(paradaOrigenId, paradaDestinoId) {
     .map((l) => `dc\\:EtiquetaLinea:${luceneEscape(l)}`)
     .join(" OR ");
 
-  // Fetch en paralelo: secuencias de líneas origen, secuencias de líneas destino
-  // y estimaciones de la parada origen
-  const [resSeqLineasOrigen, resSeqLineasDestino, estimaciones] = await Promise.all([
+  // Fetch en paralelo: secuencias de líneas origen, secuencias de líneas destino,
+  // estimaciones de la parada origen y todas las estimaciones (para filtrar líneas activas)
+  const [resSeqLineasOrigen, resSeqLineasDestino, estimaciones, todasEstimaciones] = await Promise.all([
     lineasUnicasOrigen.length > 0
       ? fetchAllPages(ENDPOINTS.secuencia, { query: qLineasOrigen })
       : Promise.resolve({ resources: [] }),
@@ -339,7 +353,15 @@ export async function planificarRuta(paradaOrigenId, paradaDestinoId) {
       ? fetchAllPages(ENDPOINTS.secuencia, { query: qLineasDestino })
       : Promise.resolve({ resources: [] }),
     getEstimacionesByParada(paradaOrigenId),
+    getTodasEstimacionesCached(),
   ]);
+
+  // Conjunto de etiquetas de líneas con buses circulando ahora mismo
+  const lineasActivas = new Set(
+    todasEstimaciones.resources
+      .map((r) => r["ayto:etiqLinea"]?.toUpperCase())
+      .filter(Boolean)
+  );
 
   const seqs = resSeqLineasOrigen.resources;
 
@@ -390,10 +412,11 @@ export async function planificarRuta(paradaOrigenId, paradaDestinoId) {
     }
   }
 
-  // Eliminar duplicados de rutas directas
+  // Eliminar duplicados de rutas directas y filtrar sólo líneas activas
   const rutasDirectasUnicas = rutasDirectas.filter(
     (v, i, a) =>
-      a.findIndex((t) => t.linea === v.linea && t.sentido === v.sentido) === i
+      a.findIndex((t) => t.linea === v.linea && t.sentido === v.sentido) === i &&
+      lineasActivas.has(v.linea?.toUpperCase())
   );
 
   // ── Rutas con transbordo (si no hay directas) ──
@@ -468,11 +491,18 @@ export async function planificarRuta(paradaOrigenId, paradaDestinoId) {
     }
   }
 
+  // Filtrar transbordos: ambas líneas deben estar activas
+  const rutasTransbordoActivas = rutasTransbordo.filter(
+    (r) =>
+      lineasActivas.has(r.tramo1.linea?.toUpperCase()) &&
+      lineasActivas.has(r.tramo2.linea?.toUpperCase())
+  );
+
   return {
     origen: paradaOrigenId,
     destino: paradaDestinoId,
     rutasDirectas: rutasDirectasUnicas,
-    rutasConTransbordo: rutasTransbordo.slice(0, 5), // máximo 5 sugerencias
+    rutasConTransbordo: rutasTransbordoActivas.slice(0, 5), // máximo 5 sugerencias
     tiempoConsulta: new Date().toISOString(),
   };
 }
